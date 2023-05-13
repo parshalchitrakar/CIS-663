@@ -1,0 +1,387 @@
+---
+title: "Salary prediction based on Stackoverflow 2022 survey"
+author: "parshal Chitrakar"
+date: "2023-05-07"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+
+## Problem Statement
+
+The problem that we are trying to solve is to predict the salaries of employees based on numerous factors such as their experience, education level, job title, type of employment, and so on. This is important because it can help organizations to make informed decisions about compensation, recruitment, and retention strategies. By accurately predicting salaries, organizations can ensure that they are paying their employees fairly, attracting the right talent, and retaining their top performers.
+
+## Software and Packages
+1. Software: Rstudio
+2. Packages:
+    * tidyverse for data wrangling and visualization
+    * caret for machine learning algorithms and model tuning
+    * dplyr for simplifying the data
+    * ggplot2 for visualization of data
+    * tidymodels for modeling and statistical analysis of data
+    * corrplot for the visual explanation of correlation
+    * tidyr for cleaning the messy data
+
+## Variables
+1. Dependent variable: ConvertedCompYearly (Converted company salary in USD which comes with dataset)
+2. Independent Variables
+    * Development Type
+    * Education level
+    * Work experience
+    * Country
+    * Industry type
+    * Company size
+    * Age
+    * Employment
+    * Years Code
+    * Years Code Pro
+
+
+### Loading the Libraries
+
+```{r libraries, echo = TRUE}
+# Load required packages
+library(dplyr)
+library(tidyr)
+library(caret)
+library(ggplot2)
+library(corrplot)
+library(tidyverse)
+library(tidymodels)
+library(corrr)
+library(correlation)
+library(Metrics)
+library(stringr)
+library(stargazer)
+library(mltools)
+```
+
+### Setting up Directory and loading data
+```{r directory, echo=TRUE}
+# First, turn off scientific notation for numbers
+options(scipen=999)
+getwd()
+setwd("C:/Users/parsh/OneDrive/Desktop/R_prediction")
+initial_data <- read.csv("survey_results_public.csv")
+df_selected <- initial_data %>% select(OrgSize,Employment,EdLevel,YearsCode, YearsCodePro,
+                             DevType,Country, Currency,
+                             Age, WorkExp,
+                             ConvertedCompYearly)
+dim(df_selected)
+```
+
+### Removing missing data
+```{r removeNA, echo = TRUE}
+df_selected <- df_selected %>% drop_na()
+#summarise the data
+summary(df_selected)
+df_selected %>% summarise_all(list(~n_distinct(.)))
+write.csv(df_selected,"clean_data.csv")
+```
+### Data Visualization based on highest top 10 convertedCompYearly
+##### Scatter Plot between YearsCodePro VS ConvertedCompYearly
+```{r plot1, echo=FALSE}
+
+# sort the dataframe by the ConvertedCompYearly column in descending order
+sorted_df <- df_selected[order(-df_selected$ConvertedCompYearly),]
+
+# select the top ten rows
+top_10 <- head(sorted_df, 10)
+
+
+ggplot(top_10, aes(x=YearsCodePro , y=ConvertedCompYearly)) +  geom_point() +ggtitle("Scatterplot of YearsCodePro and ConvertedCompYearly")
+
+
+```
+
+##### Scatter Plot of Age and ConvertedCompYearly
+```{r plot2, echo=FALSE}
+ggplot(top_10, aes(x = Age, y = ConvertedCompYearly)) +
+  geom_point() +
+  ggtitle("Scatterplot of Age and ConvertedCompYearly")
+
+```
+
+
+##### scatterplot of work experience and ConvertedCompYearly
+```{r plot3, echo=FALSE}
+ggplot(top_10, aes(x = WorkExp, y = ConvertedCompYearly)) +
+  geom_point() +
+  ggtitle("Scatterplot of work experiance and ConvertedCompYearly")
+```
+
+##### Boxplot of employment and ConvertedCompYearly
+```{r plot4, echo=FALSE}
+# Create a boxplot of ConvertedCompYearly by Employment
+ggplot(top_10, aes(x = Employment, y = ConvertedCompYearly)) +
+  geom_boxplot() +
+  ggtitle("Boxplot of ConvertedCompYearly by Employment")
+
+```
+
+
+```{r plot 5, echo = FALSE}
+ggplot(top_10, aes(x = Country, y = ConvertedCompYearly)) +
+  geom_boxplot() +
+  ggtitle("Boxplot of ConvertedCompYearly by Country")
+```
+
+```{r plot6, echo=FALSE}
+# Create a bar graph of YearsCode
+ggplot(top_10, aes(x = YearsCode)) +
+  geom_bar(stat = "count") +
+  ggtitle("Histogram of YearsCode")
+
+
+
+```
+
+
+## Data Processing 
+Generating the clean csv file which we extracted from the df_selected data frame for further processing of data and predicting. Also, checking the summary of the data.
+
+```{r, echo=TRUE}
+
+setwd("C:/Users/parsh/OneDrive/Desktop/R_prediction")
+data <- read.csv("clean_data.csv")
+
+df<- data %>% 
+  select(OrgSize,Employment,EdLevel,YearsCode, YearsCodePro,DevType, Age, WorkExp, ConvertedCompYearly)
+
+
+df %>% summarise_all(list(~n_distinct(.)))
+# Data Types
+df_dtypes=sapply(df, class)
+df_dtypes <- data.frame(df_dtypes)
+df_dtypes
+
+# Cleaning CompTotal 
+df_cleaned<-df
+df_cleaned <- df[!is.na(df$ConvertedCompYearly), ]
+df_cleaned$CompTotal <- replace(df_cleaned$ConvertedCompYearly,df_cleaned$ConvertedCompYearly>7000000,4500000)
+
+# Mean of the dependent Variable
+mean(df_cleaned$ConvertedCompYearly)
+
+```
+
+
+## Checking the levels and the factors of each variable
+
+```{r, echo=TRUE}
+# Education level#
+levels(factor(df_cleaned$EdLevel))
+#Employment#
+levels(factor(df_cleaned$Employment))
+#Age#
+levels(factor(df_cleaned$Age))
+#OrgSize#
+levels(factor(df_cleaned$OrgSize))
+```
+
+
+## Hot encoding function for encoding the catagorical varibles
+```{r}
+
+hot_encoding <- function(df,column){
+  df_updated <- one_hot(df[column],dropCols=TRUE,sparsifyNAs=TRUE)
+  return(df_updated)
+}
+
+```
+
+
+## Encoding the catagrical variables
+#### Below function was borrowed from this [website Link!!!](https://www.kaggle.com/code/klmsathishkumar/stack-overflow-survey-eda-salary-prediction) and necessay modification was done based on the requirements.
+```{r}
+clean_employment<- function(df){
+  
+  df$Employment[is.na(df_cleaned$Employment)] <- "Employed full-time"
+  df$Employment[df$Employment == "Independent contractor, freelancer, or self-employed"] <- "Freelancer"
+  
+  df_employement <- hot_encoding(df,"Employment")
+  df_removed = subset(df, select = -c(Employment))
+  df_total <- cbind(df_removed,df_employement)
+  
+  return(df_total)
+}
+
+# Function to Clean EDLevel
+clean_edlevel<- function(df){
+  df$EdLevel[is.na(df$EdLevel)] <- "Bachelor’s degree (B.A., B.S., B.Eng., etc.)"
+  
+  df_EdLevel <- hot_encoding(df,"EdLevel")
+  df_removed = subset(df, select = -c(EdLevel))
+  
+  df_total <- cbind(df_removed,df_EdLevel)
+  return(df_total)
+}
+
+
+# Function to Clean YearsCode
+clean_YearsCode <- function(df){
+  df$YearsCode[df$YearsCode == "Less than 1 year"] <- 0.5
+  
+  df$YearsCode[df$YearsCode == "More than 50 years"] <- 55
+  
+  df$YearsCode[is.na(df$YearsCode)] <- 4
+  df$YearsCode <- as.integer(as.numeric(as.character(df$YearsCode)))
+  
+  return(df)
+}
+
+# Function to Clean YearsCode
+clean_YearsCodepro <- function(df){
+  df$YearsCodePro[df$YearsCodePro == "Less than 1 year"] <- 0.5
+  
+  df$YearsCodePro[df$YearsCodePro == "More than 50 years"] <- 55
+  
+  df$YearsCodePro[is.na(df$YearsCodePro)] <- 4
+  
+  df$YearsCodePro <- as.integer(as.numeric(as.character(df$YearsCodePro)))
+  return(df)
+}
+
+
+# Function to Clean Devtype
+clean_devtype <- function(df){
+  df <- df %>%separate(DevType, c("DevType"),",")
+  
+  df <- df %>%separate(DevType, c("DevType"),";")
+  
+  df$DevType[is.na(df$DevType)] <- "Data scientist or machine learning specialist"
+  
+  mean_salary_devtype = df %>% group_by(DevType) %>% summarise(DevTypeEncoded = mean(CompTotal))
+  
+  df_final = left_join(df, mean_salary_devtype)
+  df_removed = subset(df_final, select = -c(DevType))
+  return(df_removed)
+}
+# Getting basic insights
+clean_orgsize <- function(df){
+  df$OrgSize = factor(df$OrgSize,levels = c('1,000 to 4,999 employees', 
+                                            '10 to 19 employees', 
+                                            '10,000 or more employees',
+                                            '100 to 499 employees',
+                                            '2 to 9 employees',
+                                            '20 to 99 employees',
+                                            '5,000 to 9,999 employees',
+                                            '500 to 999 employees',
+                                            'I don’t know',
+                                            'Just me - I am a freelancer, sole proprietor, etc.'),
+                      labels = c(1,2,3,4,5,6,7,8,9,10))
+  
+  df$OrgSize[is.na(df$OrgSize)] <- 10
+  
+  df$OrgSize <- as.integer(df$OrgSize)      
+  
+  return(df)
+}
+
+#function for clean age
+clean_age <- function(df){
+  df$Age = factor(df$Age,
+                  levels = c('Prefer not to say',
+                             'Under 18 years old ',
+                             '18-24 years old ', 
+                             '25-34 years old',
+                             '35-44 years old',
+                             '45-54 years old',
+                             '55-64 years old',
+                             '65 years or older'),
+                  labels = c(0,1,2,3,4,5,6,7))
+  df$Age <- as.integer(df$Age)  
+  df$Age[is.na(df$Age)] <- 0         
+  return(df)
+}
+
+```
+
+```{r}
+encoding_function <- function(df){
+  df <- clean_edlevel(df)
+  df <- clean_YearsCode(df)
+  df <- clean_devtype(df)
+  df <- clean_YearsCodepro(df)
+  df <- clean_employment(df)
+  df <- clean_orgsize(df)
+  df <- clean_age(df)
+  return(df)
+}
+
+df_cleaned <- encoding_function(df_cleaned)
+
+
+
+X_cols_to_be_scaled <- c("YearsCodePro","YearsCode","OrgSize","Age","CompTotal")
+# Slicing needed columns and standardizing and recombining with original DF
+to_scale <- df_cleaned %>% select(X_cols_to_be_scaled)
+scaled<- scale(to_scale)
+stadardized_df <-df_cleaned
+stadardized_df[X_cols_to_be_scaled] <- scaled
+
+
+df_cleaned %>% correlate() %>% focus(CompTotal)
+
+df_cleaned %>% correlate() %>% focus(ConvertedCompYearly)
+# Correlation Plot of columns that needs to be scaled
+corr = cor(stadardized_df[X_cols_to_be_scaled])
+corrplot(corr, method = 'color', order = 'alphabet')
+
+```
+
+
+
+## Splitting of data into training and testing
+```{r}
+set.seed(123)
+# Taking Random Numbers from a list and sepating train, test with repect to the values
+sample_size <- floor(0.75 * nrow(stadardized_df))
+
+train_ind <- sample(seq_len(nrow(stadardized_df)), size = sample_size)
+
+# Train Split
+train <- stadardized_df[train_ind, ]
+# Test SPlit
+test <-stadardized_df[-train_ind, ]
+
+# Independent Varaibles Split
+X <- stadardized_df[,!(names(stadardized_df) %in% c("CompTotal"))]
+
+# dependent Varaibles Split
+Y <- stadardized_df["CompTotal"]
+
+Xtrain <- X[train_ind, ]
+Ytrain <- Y[train_ind, ]
+Xtest <- X[-train_ind, ]
+Ytest <- Y[-train_ind, ]
+
+
+# Applying Linear Model for all varaiables
+lm <- lm(CompTotal~.,train)
+summary(lm)
+
+```
+
+## Conclusion 
+Based on the multiple regression analysis that we performed for predicting the salary, we can see that the Age and the work experience have the p-value less than the significance level of 0.05. This results shows that these predictors have the statistically significant relationship with the salary. 
+
+Also, the Adj. R-squared value is found to be 67.84%. This suggests that the model is a good fit for the data and that a significant proportion of the variation in the dependent variable (salary) can be explained by the independent variables like Age, work experience, Organization size etc. included in the model. However, it is important to note that there may still be some variation in the dependent variable that is not accounted for by this model. Therefore, further analysis may be necessary to identify additional variables that could improve the model's predictive power.
+
+## Refrences
+Fang, X., & Wu, M. (2019). Salary prediction with random forest. Journal of Computational Science, 34, 65-74.
+
+Mukherjee, S., & Kumar, S. (2019). Impact of location on salary prediction: An empirical study. International Journal of Data Science and Analytics, 8(1), 25-38.
+
+https://www.kaggle.com/code/klmsathishkumar/stack-overflow-survey-eda-salary-prediction
+
+https://baescott.medium.com/predicting-personal-compensation-with-survey-data-from-stack-overflow-3dfff4832a4b
+
+
+
+
